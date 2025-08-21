@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "PyResBench"
-version = "0.1.0"
+version = "0.1.1"
 description = "System benchmark by actually training a small ResNet for a few epochs."
 readme = "README.md"
 requires-python = ">=3.9"
