@@ -42,7 +42,7 @@ def load_ascii_art() -> str:
 
 def get_version_fallback() -> str:
     try:
-        return metadata.version("mlsysbench")
+        return metadata.version("PyResBench")
     except Exception:
         from . import __version__
         return getattr(__version__, "__version__", "0.0.0")
