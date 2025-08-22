@@ -51,14 +51,16 @@ def _progress_columns():
 def _rich_torchvision_download(console: Optional[Console]):
     """
     Патчим и tvu.download_url, и tvu.download_file_from_google_drive, чтобы рисовать Rich‑прогресс.
-    Если console=None — хотя бы глушим stdout/stderr torchvision, чтобы не было процентов.
+    Если console=None — просто глушим stdout/stderr torchvision (старое поведение без прогресса).
     """
+    from torchvision.datasets import utils as tvu
     if console is None:
-        # Тихий фолбэк: просто глушим вывод torchvision
+        # Тихий режим: глушим проценты torchvision
         with open(os.devnull, "w") as dn, contextlib.redirect_stdout(dn), contextlib.redirect_stderr(dn):
             yield
         return
 
+    # --- НИЧЕГО НЕ ГЛУШИМ, когда console есть! Иначе Rich не видно. ---
     orig_download_url = tvu.download_url
     orig_download_gdrv = tvu.download_file_from_google_drive
 
@@ -72,12 +74,22 @@ def _rich_torchvision_download(console: Optional[Console]):
         if os.path.isfile(fpath) and (md5 is None or tvu.check_md5(fpath, md5)):
             return
 
-        with Progress(*_progress_columns(), console=console, transient=True) as prog:
+        columns = [
+            TextColumn("[bold blue]Скачивание[/bold blue] {task.description}"),
+            BarColumn(),
+            TextColumn("{task.percentage:>3.0f}%"),
+            TransferSpeedColumn(),
+            TimeElapsedColumn(),
+            TimeRemainingColumn(),
+        ]
+        with Progress(*columns, console=console, transient=True) as prog:
             task = prog.add_task(filename, total=None)
+
             def _hook(blocknum, blocksize, totalsize):
                 if totalsize > 0:
                     prog.update(task, total=totalsize)
                 prog.update(task, advance=blocksize)
+
             urllib.request.urlretrieve(url, fpath, reporthook=_hook)
 
         if md5 is not None and not tvu.check_md5(fpath, md5):
@@ -86,6 +98,7 @@ def _rich_torchvision_download(console: Optional[Console]):
             raise RuntimeError(f"MD5 mismatch for {filename}")
 
     def _rich_download_gdrive(file_id: str, root: str, filename: Optional[str] = None, md5: Optional[str] = None):
+        import requests
         os.makedirs(root, exist_ok=True)
         if filename is None:
             filename = f"gdrive_{file_id}"
@@ -94,19 +107,24 @@ def _rich_torchvision_download(console: Optional[Console]):
         if os.path.isfile(fpath) and (md5 is None or tvu.check_md5(fpath, md5)):
             return
 
-        # Простой стрим через requests с Rich‑прогрессом
         session = requests.Session()
         URL = "https://docs.google.com/uc?export=download"
-        params = {"id": file_id}
-        response = session.get(URL, params=params, stream=True)
-        # подтверждение больших файлов
+        response = session.get(URL, params={"id": file_id}, stream=True)
         for k, v in response.cookies.items():
             if k.startswith("download_warning"):
                 response = session.get(URL, params={"id": file_id, "confirm": v}, stream=True)
                 break
 
         total = int(response.headers.get("Content-Length", "0")) or None
-        with Progress(*_progress_columns(), console=console, transient=True) as prog:
+        columns = [
+            TextColumn("[bold blue]Скачивание[/bold blue] {task.description}"),
+            BarColumn(),
+            TextColumn("{task.percentage:>3.0f}%"),
+            TransferSpeedColumn(),
+            TimeElapsedColumn(),
+            TimeRemainingColumn(),
+        ]
+        with Progress(*columns, console=console, transient=True) as prog:
             task = prog.add_task(filename, total=total)
             with open(fpath, "wb") as f:
                 for chunk in response.iter_content(chunk_size=1024 * 1024):
@@ -120,16 +138,16 @@ def _rich_torchvision_download(console: Optional[Console]):
             except Exception: pass
             raise RuntimeError(f"MD5 mismatch for {filename}")
 
-    # apply patches
+    # Применяем патчи
     tvu.download_url = _rich_download_url
     tvu.download_file_from_google_drive = _rich_download_gdrive
     try:
-        # даже с Rich подстрахуемся от случайных print'ов внутри torchvision
-        with open(os.devnull, "w") as dn, contextlib.redirect_stdout(dn), contextlib.redirect_stderr(dn):
-            yield
+        # БЕЗ redirect_stdout/redirect_stderr!
+        yield
     finally:
         tvu.download_url = orig_download_url
         tvu.download_file_from_google_drive = orig_download_gdrv
+
 
 # ----------------------------------------------------
 
