@@ -30,7 +30,9 @@ def main():
 
     # Пока готовим датасет — показываем спиннер
     with console.status("[bold]Подготовка датасета…[/bold]"):
-        train_ds, val_ds, num_classes = get_dataset(args.dataset, args.data_dir, img_size=args.img_size)
+        train_ds, val_ds, num_classes = get_dataset(
+            args.dataset, args.data_dir, img_size=args.img_size, console=console  # <— добавили console
+        )
 
     # Без статуса поверх прогресса — просто разделитель
     console.rule("[bold]Тренировка[/bold]")
