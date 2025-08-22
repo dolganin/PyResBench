@@ -65,47 +65,6 @@ def _silence_worker_stdout(_wid: int):
     sys.stdout = open(os.devnull, "w")
 
 
-def _compute_pyres_score(
-    best_acc: float,
-    throughput_img_s: float,
-    epoch_times: list[float],
-    num_classes: int,
-    img_size: int,
-    amp: bool,
-    device: torch.device,
-    epochs: int,
-    best_epoch_idx: Optional[int],
-) -> float:
-    chance = 1.0 / max(1, num_classes)
-    if 1.0 - chance > 0:
-        a_norm = max(0.0, (best_acc - chance) / (1.0 - chance))
-    else:
-        a_norm = 0.0
-    k = 2.0
-    a_term = (1.0 - math.exp(-k * a_norm)) / (1.0 - math.exp(-k)) if a_norm > 0 else 0.0
-
-    C = 250.0 * ((img_size / 224.0) ** 2)
-    s_term = throughput_img_s / (throughput_img_s + C) if throughput_img_s > 0 else 0.0
-
-    if len(epoch_times) > 1:
-        mean_t = sum(epoch_times) / len(epoch_times)
-        cv = statistics.pstdev(epoch_times) / mean_t if mean_t > 0 else 0.0
-    else:
-        cv = 0.0
-    r_term = 1.0 / (1.0 + cv)
-
-    bonus = 0.0
-    if device.type == "cuda" and amp:
-        bonus += 0.02
-    if epochs > 1 and best_epoch_idx is not None:
-        early = max(0.0, (epochs - 1 - best_epoch_idx) / (epochs - 1))
-        bonus += 0.02 * early
-
-    wA, wS, wR = 0.6, 0.3, 0.1
-    score = wA * a_term + wS * s_term + wR * r_term + bonus
-    return max(0.0, min(1.0, score))
-
-
 def _rainbow_markup(text: str) -> str:
     colors = ["red", "dark_orange3", "yellow1", "chartreuse1",
               "turquoise2", "dodger_blue2", "medium_purple"]
@@ -115,16 +74,20 @@ def _rainbow_markup(text: str) -> str:
     return "".join(out)
 
 
-def print_score_box(score: float, console: Console):
+def print_score_box(score_seconds: float, console: Console):
+    # Радужный бокс «ВАШ СЧЕТ: <число> s» (меньше — лучше)
     bar_colors = ["red", "dark_orange3", "yellow1", "chartreuse1",
                   "turquoise2", "dodger_blue2", "medium_purple"]
     bar = "".join(f"[{c}]▀[/]" for c in bar_colors for _ in range(8))
     title = _rainbow_markup("ВАШ СЧЕТ:")
-    value = _rainbow_markup(f"{score:.3f}")
+    value = _rainbow_markup(f"{score_seconds:.3f} s")
     body = f"{bar}\n[b]{title}[/b]\n{bar}\n[bold]{value}[/bold]\n{bar}"
-    console.print(Panel.fit(body, border_style="bright_magenta",
-                            title=_rainbow_markup("PyResScore"),
-                            subtitle=_rainbow_markup("0 — плохо, 1 — отлично")))
+    console.print(Panel.fit(
+        body,
+        border_style="bright_magenta",
+        title=_rainbow_markup("Score = mean(epoch) + var(epoch)"),
+        subtitle=_rainbow_markup("Меньше — лучше"),
+    ))
 
 
 def train_bench(
@@ -161,7 +124,6 @@ def train_bench(
 
     total_start = perf_counter()
     best_acc = 0.0
-    best_epoch_idx: Optional[int] = None
     epoch_times: list[float] = []
     total_samples = 0
 
@@ -200,20 +162,19 @@ def train_bench(
         epoch_time = perf_counter() - t0
         epoch_times.append(epoch_time)
         acc = evaluate(model, val_loader, device, amp=amp)
-        if acc >= best_acc:
-            best_acc = acc
-            best_epoch_idx = epoch - 1
+        best_acc = max(best_acc, acc)
         console.print(f"[green]✓[/green] Epoch {epoch} finished: "
                       f"time={epoch_time:.2f}s, val_acc={acc*100:.2f}%")
 
     total_time = perf_counter() - total_start
     throughput = total_samples / total_time if total_time > 0 else 0.0
 
-    score = _compute_pyres_score(best_acc, throughput, epoch_times,
-                                 num_classes, img_size, amp, device,
-                                 epochs, best_epoch_idx)
+    # --- Новый скор: mean(epoch_time) + var(epoch_time) ---
+    mean_epoch = sum(epoch_times) / max(1, len(epoch_times))
+    var_epoch = statistics.pvariance(epoch_times) if len(epoch_times) > 1 else 0.0
+    score_time_var = mean_epoch + var_epoch  # секунды + секунды^2 (меньше — лучше)
 
-    print_score_box(score, console)
+    print_score_box(score_time_var, console)
 
     return {
         "epochs": epochs,
@@ -224,11 +185,12 @@ def train_bench(
         "amp": bool(amp and device.type == "cuda"),
         "img_size": img_size,
         "total_time_s": round(total_time, 3),
-        "avg_epoch_time_s": round(sum(epoch_times) / len(epoch_times), 3),
+        "avg_epoch_time_s": round(mean_epoch, 3),
+        "epoch_time_var_s2": round(var_epoch, 6),
         "best_val_acc": round(best_acc, 4),
         "train_samples": total_samples,
         "throughput_img_s": round(throughput, 2),
-        "score": round(score, 4),
+        "score_time_var_s": round(score_time_var, 3),
     }
 
 
@@ -259,9 +221,10 @@ def print_results_table(sysinfo: Dict[str, Any], results: Dict[str, Any],
         ("Img size", str(results["img_size"])),
         ("Total time (s)", f'[bold]{results["total_time_s"]}[/bold]'),
         ("Avg epoch (s)", f'{results["avg_epoch_time_s"]}'),
+        ("Epoch time var (s²)", f'{results["epoch_time_var_s2"]}'),
         ("Throughput (img/s)", f'[bold green]{results["throughput_img_s"]}[/bold green]'),
         ("Best Val Acc", f'[bold magenta]{results["best_val_acc"]*100:.2f}%[/bold magenta]'),
-        ("PyResScore", f'[bold]{results.get("score", 0):.3f}[/bold]'),
+        ("Score = mean + var (s)", f'[bold]{results.get("score_time_var_s", 0):.3f}[/bold]'),
     ]
     for k, v in rows:
         t.add_row(k, v)
