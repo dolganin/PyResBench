@@ -24,14 +24,16 @@ PyResBench --dataset cifar10
 
 ## Пример вывода
 ```
-Epoch 1/10 ... val_acc=65.32%
-✓ Epoch 10 finished: time=12.34s, val_acc=78.91%
-
-PyResBench — Training Benchmark
-----------------------------------------------------
-Avg epoch (s)     12.3
-Best Val Acc      78.91%
-PyResScore        12.7  (mean + variance, чем меньше — тем лучше)
+✓ Epoch 1 finished: time=3.29s, val_acc=100.00%
+✓ Epoch 2 finished: time=2.73s, val_acc=100.00%
+✓ Epoch 3 finished: time=2.74s, val_acc=100.00%
+✓ Epoch 4 finished: time=2.77s, val_acc=100.00%
+✓ Epoch 5 finished: time=2.75s, val_acc=100.00%
+✓ Epoch 6 finished: time=2.75s, val_acc=100.00%
+✓ Epoch 7 finished: time=2.73s, val_acc=100.00%
+✓ Epoch 8 finished: time=2.71s, val_acc=100.00%
+✓ Epoch 9 finished: time=2.75s, val_acc=100.00%
+✓ Epoch 10 finished: time=2.75s, val_acc=100.00%
 ```
 
 ## Зачем это нужно?
