@@ -7,18 +7,18 @@
              
 ## Установка
 ```bash
-pip install pyresbench
+pip3 install -e .
 ```
 
 ## Использование
 Запуск с дефолтным датасетом (кошки/собаки):  
 ```bash
-pyresbench
+PyResBench
 ```
 
 Выбор датасета:  
 ```bash
-pyresbench --dataset cifar10
+PyResBench --dataset cifar10
 ```
 
 ## Пример вывода
