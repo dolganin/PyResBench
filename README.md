@@ -7,6 +7,7 @@
              
 ## Установка
 ```bash
+git clone https://github.com/dolganin/PyResBench.git
 pip3 install -e .
 ```
 
